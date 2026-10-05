@@ -82,14 +82,28 @@ button,input{font:inherit;color:inherit}
 .stage canvas:active{cursor:grabbing}
 .labels{position:absolute;inset:0;pointer-events:none}
 .lbl{position:absolute;left:0;top:0;height:22px;line-height:20px;font-size:13px;font-weight:700;letter-spacing:.01em;color:#fff;background:rgba(28,39,64,.95);border:1px solid var(--kin);padding:0 7px;border-radius:5px;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.25)}
+.lbl.sm{height:17px;line-height:15px;font-size:11px;font-weight:600;color:var(--ink);background:rgba(251,250,247,.82);border:1px solid rgba(28,39,64,.18);padding:0 5px;border-radius:9px;box-shadow:none}
+.lbl.pick{pointer-events:auto;cursor:pointer}
+.lbl.sm.pick:hover{background:#fff;border-color:var(--ink)}
 .lbl.ok{border-style:dashed;color:var(--muted);background:transparent;border-color:rgba(28,39,64,.3);font-weight:500;box-shadow:none}
 .leaders{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
 .leaders line{stroke:var(--ink);stroke-width:1.2;stroke-opacity:.7}
+.leaders line.thin{stroke-width:1;stroke-opacity:.35}
+.leaders circle.thin{r:1.8;fill:var(--ink);stroke:none;opacity:.45}
 .leaders circle{fill:#fff;stroke:var(--ink);stroke-width:1.5}
 .view-tools{position:absolute;right:12px;bottom:12px;display:flex;gap:8px;align-items:center}
 .ghost{background:rgba(251,250,247,.9);border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:7px 12px;font-size:13px;cursor:pointer}
 .ghost:hover{border-color:var(--ink)}
 .howto{position:absolute;left:12px;bottom:12px;font-size:12px;color:var(--muted)}
+.selcard{position:absolute;left:12px;right:12px;top:12px;margin:0 auto;max-width:420px;display:none;align-items:center;gap:12px;background:rgba(251,250,247,.97);border:1px solid var(--line);border-left:4px solid var(--ink);border-radius:10px;padding:9px 10px 9px 14px;box-shadow:0 6px 18px rgba(28,39,64,.18)}
+.selcard.show{display:flex}
+.selcard.on{border-left-color:var(--red)}
+.selcard .nm{flex:1;min-width:0;line-height:1.25}
+.selcard .nm .ja{font-size:18px;font-weight:700}
+.selcard .nm .en{display:block;font-size:12px;color:var(--muted)}
+.selcard .act{flex:none;border:0;border-radius:8px;padding:9px 12px;font-weight:700;font-size:13px;cursor:pointer;background:var(--red);color:#fff}
+.selcard.on .act{background:var(--chip);color:var(--ink)}
+.selcard .x{flex:none;background:none;border:0;font-size:20px;line-height:1;color:var(--muted);cursor:pointer;padding:4px 2px}
 .nogl{position:absolute;inset:0;display:none;place-items:center;text-align:center;padding:24px;color:var(--muted)}
 
 .tip{position:fixed;pointer-events:none;background:var(--ink);color:#fff;padding:6px 10px 7px;border-radius:8px;font-size:13px;line-height:1.25;opacity:0;transition:opacity .1s;z-index:5;white-space:nowrap}
@@ -143,7 +157,7 @@ button,input{font:inherit;color:inherit}
     <div class="hero">
       <div>
         <h1 id="title">My Japan</h1>
-        <p>Tap a prefecture to mark it as visited. Visited prefectures rise up in red. Your map is saved in this browser.</p>
+        <p>Tap a prefecture to see its name and mark it as visited. Visited prefectures rise up in red. Your map is saved in this browser.</p>
         <div class="name-field"><label for="nameIn">Your name</label><input id="nameIn" type="text" maxlength="30" placeholder="Add your name" autocomplete="name"></div>
       </div>
       <div class="stamp" id="stamp" aria-live="polite">
@@ -153,8 +167,9 @@ button,input{font:inherit;color:inherit}
 
     <div class="stage" id="stage">
       <div class="labels" id="labels"></div>
-      <span class="howto">Drag to rotate, scroll or pinch to zoom, right-drag to pan</span>
+      <span class="howto">Tap a name or prefecture to select it · drag to rotate, pinch or scroll to zoom for more names</span>
       <div class="view-tools"><button class="ghost" id="resetBtn">Reset view</button></div>
+      <div class="selcard" id="selcard" role="status" aria-live="polite"><div class="nm" id="selName"></div><button class="act" id="selAct"></button><button class="x" id="selX" aria-label="Close">×</button></div>
       <div class="nogl" id="nogl">This browser can't show the 3D map. Use the list to mark prefectures.</div>
     </div>
 
@@ -270,16 +285,24 @@ function initThree(){
   const okl=document.createElement("div");okl.className="lbl ok";okl.textContent="Okinawa";labelsEl.appendChild(okl);
   lblEl.ok={el:okl,world:()=>{const v=toV(26,48);return new THREE.Vector3(v.x,0,-v.y);}};
 
+  // every prefecture gets a tappable name; visited ones also get the bold tag below
+  const mkPick=(d,id)=>{
+    d.addEventListener("pointerup",e=>{e.pointerType==="touch"?showCard(id):toggle(id);});
+    d.addEventListener("pointerenter",e=>{if(e.pointerType!=="touch")hoverId=id;});
+    d.addEventListener("pointerleave",e=>{if(e.pointerType!=="touch")hoverId=selId;});
+  };
+  const smEl={};
+  P.forEach(p=>{const d=document.createElement("div");d.className="lbl sm pick";d.textContent=p.en;d.title=p.ja+" "+p.en;d.style.display="none";labelsEl.appendChild(d);mkPick(d,p.id);smEl[p.id]=d;});
   P.forEach(p=>{
-    const d=document.createElement("div");d.className="lbl";d.textContent=p.en;d.style.display="none";labelsEl.appendChild(d);
-    lblEl[p.id]={el:d,world:()=>{const v=toV(...GEO[p.id].p);return new THREE.Vector3(v.x,meshes[p.id].scale.z,-v.y);}};
+    const d=document.createElement("div");d.className="lbl pick";d.textContent=p.en;d.style.display="none";labelsEl.appendChild(d);mkPick(d,p.id);
+    lblEl[p.id]={el:d,sm:smEl[p.id],world:()=>{const v=toV(...GEO[p.id].p);return new THREE.Vector3(v.x,meshes[p.id].scale.z,-v.y);}};
   });
 
   // interaction
   const ray=new THREE.Raycaster(),mouse=new THREE.Vector2();let down=null;
   const pick=e=>{const r=renderer.domElement.getBoundingClientRect();mouse.set((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);ray.setFromCamera(mouse,camera);const hit=ray.intersectObjects(Object.values(meshes),false)[0];return hit?hit.object.userData.id:null;};
   renderer.domElement.addEventListener("pointerdown",e=>{down=[e.clientX,e.clientY];});
-  renderer.domElement.addEventListener("pointerup",e=>{if(!down)return;const moved=Math.hypot(e.clientX-down[0],e.clientY-down[1]);down=null;if(moved<6){const id=pick(e);if(id)toggle(id);}});
+  renderer.domElement.addEventListener("pointerup",e=>{if(!down)return;const moved=Math.hypot(e.clientX-down[0],e.clientY-down[1]);down=null;if(moved<6){const id=pick(e);if(e.pointerType==="touch"){id?showCard(id):hideCard();}else if(id)toggle(id);}});
   renderer.domElement.addEventListener("pointermove",e=>{
     if(e.pointerType==="touch")return;
     const id=pick(e);hoverId=id;
@@ -287,7 +310,7 @@ function initThree(){
       tip.style.left=Math.min(e.clientX+14,innerWidth-tip.offsetWidth-8)+"px";tip.style.top=(e.clientY+14)+"px";}
     else tip.style.opacity=0;
   });
-  renderer.domElement.addEventListener("pointerleave",()=>{hoverId=null;tip.style.opacity=0;});
+  renderer.domElement.addEventListener("pointerleave",e=>{if(e.pointerType!=="touch"){hoverId=selId;tip.style.opacity=0;}});
   document.getElementById("resetBtn").addEventListener("click",()=>{camera.position.set(...HOME.pos);if(controls){controls.target.set(...HOME.target);controls.update();}});
 
   new ResizeObserver(resize).observe(stage);resize();
@@ -297,18 +320,18 @@ function resize(){const w=stage.clientWidth,h=stage.clientHeight;renderer.setSiz
 /* greedy label placement: try spots around each anchor, nearest first, avoid overlaps */
 const CANDS=(()=>{
   const out=[{r:0,a:-Math.PI/2}];[1,2,3,4,5,6,7,8,10].forEach(r=>{out.push({r,a:-Math.PI/2});for(let j=1;j<=8;j++){out.push({r,a:-Math.PI/2+j*Math.PI/8});if(j<8)out.push({r,a:-Math.PI/2-j*Math.PI/8});}});return out;})();
-function layoutLabels(items,W,H,step,obstacles){
+function layoutLabels(items,W,H,step,obstacles,lift){
   const placed=obstacles.slice(),pad=3;
   const pins=items.map(it=>({x:it.x-4,y:it.y-4,w:8,h:8,own:it}));
   const ov=(a,b)=>{const x=Math.min(a.x+a.w,b.x+b.w)-Math.max(a.x,b.x)+pad,y=Math.min(a.y+a.h,b.y+b.h)-Math.max(a.y,b.y)+pad;return x>0&&y>0?x*y:0;};
   items.slice().sort((a,b)=>a.y-b.y).forEach(it=>{
     let best=null,bs=Infinity;
     for(const c of CANDS){
-      const cx=it.x+Math.cos(c.a)*c.r*step,cy=it.y-(it.h/2+10)+Math.sin(c.a)*c.r*step*.9;
+      const cx=it.x+Math.cos(c.a)*c.r*step,cy=it.y-(lift??it.h/2+10)+Math.sin(c.a)*c.r*step*.9;
       const rc={x:cx-it.w/2,y:cy-it.h/2,w:it.w,h:it.h};
       if(rc.x<2||rc.y<2||rc.x+rc.w>W-2||rc.y+rc.h>H-2)continue;
       let o=0;for(const p of placed)o+=ov(rc,p);for(const p of pins)if(p.own!==it)o+=ov(rc,p)*.5;
-      const sc=o*1000+c.r;if(sc<bs){bs=sc;best=rc;}if(o===0)break;
+      const sc=o*1000+c.r;if(sc<bs){bs=sc;best=rc;it.clash=o>0;}if(o===0)break;
     }
     if(!best)best={x:Math.min(Math.max(it.x-it.w/2,2),W-it.w-2),y:Math.max(it.y-it.h-10,2),w:it.w,h:it.h};
     placed.push(best);it.rect=best;
@@ -325,11 +348,13 @@ function placeLabels(w,h,cam){
   const items=[],obst=[];
   const okL=lblEl.ok,ov=okL.world().project(cam);
   if(ov.z<1){const x=(ov.x+1)/2*w,y=(1-ov.y)/2*h;okL.el.style.display="";okL.el.style.transform=`translate(${x}px,${y}px)`;obst.push({x,y,w:okL.el.offsetWidth||70,h:22});}else okL.el.style.display="none";
+  const small=[];
   for(const k in lblEl){
     if(k==="ok")continue;const L=lblEl[k];
-    if(!visited.has(+k)){L.el.style.display="none";continue;}
-    const v=L.world().project(cam);const x=(v.x+1)/2*w,y=(1-v.y)/2*h;
-    if(!(v.z<1&&x>-20&&x<w+20&&y>-20&&y<h+20)){L.el.style.display="none";continue;}
+    const v=L.world().project(cam);const x=(v.x+1)/2*w,y=(1-v.y)/2*h,inView=v.z<1&&x>-20&&x<w+20&&y>-20&&y<h+20;
+    if(!visited.has(+k)){L.el.style.display="none";if(inView)small.push({L,x,y});else L.sm.style.display="none";continue;}
+    L.sm.style.display="none";
+    if(!inView){L.el.style.display="none";continue;}
     if(!L.w)L.w=Math.ceil(measureCtx.measureText(byId[+k].en).width)+16;
     items.push({id:+k,x,y,w:L.w,h:22});
   }
@@ -338,6 +363,17 @@ function placeLabels(w,h,cam){
   items.forEach(it=>{const L=lblEl[it.id];L.el.style.display="";L.el.style.transform=`translate(${it.rect.x}px,${it.rect.y}px)`;
     if(it.leader)svg+=`<line x1="${it.x}" y1="${it.y}" x2="${it.leader[0]}" y2="${it.leader[1]}"/>`;
     svg+=`<circle cx="${it.x}" cy="${it.y}" r="3"/>`;});
+  // names of not-yet-visited prefectures: centred on each one, nudged aside with a thin pointer when crowded;
+  // any that still can't fit are hidden until you zoom in
+  measureCtx.font="600 11px 'Zen Kaku Gothic New',system-ui,sans-serif";
+  const sItems=small.map(({L,x,y})=>{if(!L.sw)L.sw=Math.ceil(measureCtx.measureText(L.el.textContent).width)+12;return {L,x,y,w:L.sw,h:17};});
+  layoutLabels(sItems,w,h,8,obst.concat(items.map(it=>it.rect)),0);
+  sItems.forEach(it=>{
+    const far=it.leader&&Math.hypot(it.leader[0]-it.x,it.leader[1]-it.y)>70;
+    if(it.clash||far){it.L.sm.style.display="none";return;}
+    it.L.sm.style.display="";it.L.sm.style.transform=`translate(${it.rect.x}px,${it.rect.y}px)`;
+    if(it.leader)svg+=`<line class="thin" x1="${it.x}" y1="${it.y}" x2="${it.leader[0]}" y2="${it.leader[1]}"/><circle class="thin" cx="${it.x}" cy="${it.y}" r="1.8"/>`;
+  });
   leadersSvg.innerHTML=svg;
 }
 function loop(){
@@ -377,7 +413,17 @@ REGIONS.forEach(R=>{
   regionsEl.appendChild(sec);regSec[R.k]=sec;
 });
 function toggle(id){visited.has(id)?visited.delete(id):visited.add(id);render(true);}
+let selId=null;
+const selcard=document.getElementById("selcard"),selName=document.getElementById("selName"),selAct=document.getElementById("selAct");
+function drawCard(){if(!selId)return;const p=byId[selId],on=visited.has(selId);
+  selName.innerHTML=`<span class="ja">${ruby(p.ja,p.rb)}</span><span class="en">${p.en}${on?" — visited":""}</span>`;
+  selAct.textContent=on?"Remove":"Mark visited";selcard.classList.toggle("on",on);}
+function showCard(id){selId=id;hoverId=id;selcard.classList.add("show");drawCard();}
+function hideCard(){selId=null;hoverId=null;selcard.classList.remove("show");}
+selAct.addEventListener("click",()=>{if(selId)toggle(selId);});
+document.getElementById("selX").addEventListener("click",hideCard);
 function render(animate){
+  drawCard();
   P.forEach(p=>chipEl[p.id].setAttribute("aria-pressed",visited.has(p.id)));
   let touched=0;
   REGIONS.forEach(R=>{
@@ -439,7 +485,7 @@ async function drawPNG(){
   // 3D render: fit the whole map, then crop to the map and scale into the frame
   if(ok3d){
     const target=controls?controls.target.clone():new THREE.Vector3(...HOME.target);
-    const dir=camera.position.clone().sub(target).normalize();
+    const dir=new THREE.Vector3(...HOME.pos).sub(new THREE.Vector3(...HOME.target)).normalize(); // same default view for everyone
     const saved={};for(const id in meshes){saved[id]=meshes[id].scale.z;meshes[id].scale.z=visited.has(+id)?H_ON:H_OFF;}
     scene.updateMatrixWorld(true);
     // sample map outline points (base and top) in world space
