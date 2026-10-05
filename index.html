@@ -82,9 +82,14 @@ button,input{font:inherit;color:inherit}
 .stage canvas:active{cursor:grabbing}
 .labels{position:absolute;inset:0;pointer-events:none}
 .lbl{position:absolute;left:0;top:0;height:22px;line-height:20px;font-size:13px;font-weight:700;letter-spacing:.01em;color:#fff;background:rgba(28,39,64,.95);border:1px solid var(--kin);padding:0 7px;border-radius:5px;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.25)}
+.lbl.sm{height:17px;line-height:15px;font-size:11px;font-weight:600;color:var(--ink);background:rgba(251,250,247,.82);border:1px solid rgba(28,39,64,.18);padding:0 5px;border-radius:9px;box-shadow:none}
+.lbl.pick{pointer-events:auto;cursor:pointer}
+.lbl.sm.pick:hover{background:#fff;border-color:var(--ink)}
 .lbl.ok{border-style:dashed;color:var(--muted);background:transparent;border-color:rgba(28,39,64,.3);font-weight:500;box-shadow:none}
 .leaders{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
 .leaders line{stroke:var(--ink);stroke-width:1.2;stroke-opacity:.7}
+.leaders line.thin{stroke-width:1;stroke-opacity:.35}
+.leaders circle.thin{r:1.8;fill:var(--ink);stroke:none;opacity:.45}
 .leaders circle{fill:#fff;stroke:var(--ink);stroke-width:1.5}
 .view-tools{position:absolute;right:12px;bottom:12px;display:flex;gap:8px;align-items:center}
 .ghost{background:rgba(251,250,247,.9);border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:7px 12px;font-size:13px;cursor:pointer}
@@ -162,7 +167,7 @@ button,input{font:inherit;color:inherit}
 
     <div class="stage" id="stage">
       <div class="labels" id="labels"></div>
-      <span class="howto">Drag to rotate, scroll or pinch to zoom, right-drag to pan</span>
+      <span class="howto">Tap a name or prefecture to select it · drag to rotate, pinch or scroll to zoom for more names</span>
       <div class="view-tools"><button class="ghost" id="resetBtn">Reset view</button></div>
       <div class="selcard" id="selcard" role="status" aria-live="polite"><div class="nm" id="selName"></div><button class="act" id="selAct"></button><button class="x" id="selX" aria-label="Close">×</button></div>
       <div class="nogl" id="nogl">This browser can't show the 3D map. Use the list to mark prefectures.</div>
@@ -280,9 +285,17 @@ function initThree(){
   const okl=document.createElement("div");okl.className="lbl ok";okl.textContent="Okinawa";labelsEl.appendChild(okl);
   lblEl.ok={el:okl,world:()=>{const v=toV(26,48);return new THREE.Vector3(v.x,0,-v.y);}};
 
+  // every prefecture gets a tappable name; visited ones also get the bold tag below
+  const mkPick=(d,id)=>{
+    d.addEventListener("pointerup",e=>{e.pointerType==="touch"?showCard(id):toggle(id);});
+    d.addEventListener("pointerenter",e=>{if(e.pointerType!=="touch")hoverId=id;});
+    d.addEventListener("pointerleave",e=>{if(e.pointerType!=="touch")hoverId=selId;});
+  };
+  const smEl={};
+  P.forEach(p=>{const d=document.createElement("div");d.className="lbl sm pick";d.textContent=p.en;d.title=p.ja+" "+p.en;d.style.display="none";labelsEl.appendChild(d);mkPick(d,p.id);smEl[p.id]=d;});
   P.forEach(p=>{
-    const d=document.createElement("div");d.className="lbl";d.textContent=p.en;d.style.display="none";labelsEl.appendChild(d);
-    lblEl[p.id]={el:d,world:()=>{const v=toV(...GEO[p.id].p);return new THREE.Vector3(v.x,meshes[p.id].scale.z,-v.y);}};
+    const d=document.createElement("div");d.className="lbl pick";d.textContent=p.en;d.style.display="none";labelsEl.appendChild(d);mkPick(d,p.id);
+    lblEl[p.id]={el:d,sm:smEl[p.id],world:()=>{const v=toV(...GEO[p.id].p);return new THREE.Vector3(v.x,meshes[p.id].scale.z,-v.y);}};
   });
 
   // interaction
@@ -307,18 +320,18 @@ function resize(){const w=stage.clientWidth,h=stage.clientHeight;renderer.setSiz
 /* greedy label placement: try spots around each anchor, nearest first, avoid overlaps */
 const CANDS=(()=>{
   const out=[{r:0,a:-Math.PI/2}];[1,2,3,4,5,6,7,8,10].forEach(r=>{out.push({r,a:-Math.PI/2});for(let j=1;j<=8;j++){out.push({r,a:-Math.PI/2+j*Math.PI/8});if(j<8)out.push({r,a:-Math.PI/2-j*Math.PI/8});}});return out;})();
-function layoutLabels(items,W,H,step,obstacles){
+function layoutLabels(items,W,H,step,obstacles,lift){
   const placed=obstacles.slice(),pad=3;
   const pins=items.map(it=>({x:it.x-4,y:it.y-4,w:8,h:8,own:it}));
   const ov=(a,b)=>{const x=Math.min(a.x+a.w,b.x+b.w)-Math.max(a.x,b.x)+pad,y=Math.min(a.y+a.h,b.y+b.h)-Math.max(a.y,b.y)+pad;return x>0&&y>0?x*y:0;};
   items.slice().sort((a,b)=>a.y-b.y).forEach(it=>{
     let best=null,bs=Infinity;
     for(const c of CANDS){
-      const cx=it.x+Math.cos(c.a)*c.r*step,cy=it.y-(it.h/2+10)+Math.sin(c.a)*c.r*step*.9;
+      const cx=it.x+Math.cos(c.a)*c.r*step,cy=it.y-(lift??it.h/2+10)+Math.sin(c.a)*c.r*step*.9;
       const rc={x:cx-it.w/2,y:cy-it.h/2,w:it.w,h:it.h};
       if(rc.x<2||rc.y<2||rc.x+rc.w>W-2||rc.y+rc.h>H-2)continue;
       let o=0;for(const p of placed)o+=ov(rc,p);for(const p of pins)if(p.own!==it)o+=ov(rc,p)*.5;
-      const sc=o*1000+c.r;if(sc<bs){bs=sc;best=rc;}if(o===0)break;
+      const sc=o*1000+c.r;if(sc<bs){bs=sc;best=rc;it.clash=o>0;}if(o===0)break;
     }
     if(!best)best={x:Math.min(Math.max(it.x-it.w/2,2),W-it.w-2),y:Math.max(it.y-it.h-10,2),w:it.w,h:it.h};
     placed.push(best);it.rect=best;
@@ -335,11 +348,13 @@ function placeLabels(w,h,cam){
   const items=[],obst=[];
   const okL=lblEl.ok,ov=okL.world().project(cam);
   if(ov.z<1){const x=(ov.x+1)/2*w,y=(1-ov.y)/2*h;okL.el.style.display="";okL.el.style.transform=`translate(${x}px,${y}px)`;obst.push({x,y,w:okL.el.offsetWidth||70,h:22});}else okL.el.style.display="none";
+  const small=[];
   for(const k in lblEl){
     if(k==="ok")continue;const L=lblEl[k];
-    if(!visited.has(+k)){L.el.style.display="none";continue;}
-    const v=L.world().project(cam);const x=(v.x+1)/2*w,y=(1-v.y)/2*h;
-    if(!(v.z<1&&x>-20&&x<w+20&&y>-20&&y<h+20)){L.el.style.display="none";continue;}
+    const v=L.world().project(cam);const x=(v.x+1)/2*w,y=(1-v.y)/2*h,inView=v.z<1&&x>-20&&x<w+20&&y>-20&&y<h+20;
+    if(!visited.has(+k)){L.el.style.display="none";if(inView)small.push({L,x,y});else L.sm.style.display="none";continue;}
+    L.sm.style.display="none";
+    if(!inView){L.el.style.display="none";continue;}
     if(!L.w)L.w=Math.ceil(measureCtx.measureText(byId[+k].en).width)+16;
     items.push({id:+k,x,y,w:L.w,h:22});
   }
@@ -348,6 +363,17 @@ function placeLabels(w,h,cam){
   items.forEach(it=>{const L=lblEl[it.id];L.el.style.display="";L.el.style.transform=`translate(${it.rect.x}px,${it.rect.y}px)`;
     if(it.leader)svg+=`<line x1="${it.x}" y1="${it.y}" x2="${it.leader[0]}" y2="${it.leader[1]}"/>`;
     svg+=`<circle cx="${it.x}" cy="${it.y}" r="3"/>`;});
+  // names of not-yet-visited prefectures: centred on each one, nudged aside with a thin pointer when crowded;
+  // any that still can't fit are hidden until you zoom in
+  measureCtx.font="600 11px 'Zen Kaku Gothic New',system-ui,sans-serif";
+  const sItems=small.map(({L,x,y})=>{if(!L.sw)L.sw=Math.ceil(measureCtx.measureText(L.el.textContent).width)+12;return {L,x,y,w:L.sw,h:17};});
+  layoutLabels(sItems,w,h,8,obst.concat(items.map(it=>it.rect)),0);
+  sItems.forEach(it=>{
+    const far=it.leader&&Math.hypot(it.leader[0]-it.x,it.leader[1]-it.y)>70;
+    if(it.clash||far){it.L.sm.style.display="none";return;}
+    it.L.sm.style.display="";it.L.sm.style.transform=`translate(${it.rect.x}px,${it.rect.y}px)`;
+    if(it.leader)svg+=`<line class="thin" x1="${it.x}" y1="${it.y}" x2="${it.leader[0]}" y2="${it.leader[1]}"/><circle class="thin" cx="${it.x}" cy="${it.y}" r="1.8"/>`;
+  });
   leadersSvg.innerHTML=svg;
 }
 function loop(){
