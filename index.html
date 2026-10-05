@@ -90,6 +90,15 @@ button,input{font:inherit;color:inherit}
 .ghost{background:rgba(251,250,247,.9);border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:7px 12px;font-size:13px;cursor:pointer}
 .ghost:hover{border-color:var(--ink)}
 .howto{position:absolute;left:12px;bottom:12px;font-size:12px;color:var(--muted)}
+.selcard{position:absolute;left:12px;right:12px;top:12px;margin:0 auto;max-width:420px;display:none;align-items:center;gap:12px;background:rgba(251,250,247,.97);border:1px solid var(--line);border-left:4px solid var(--ink);border-radius:10px;padding:9px 10px 9px 14px;box-shadow:0 6px 18px rgba(28,39,64,.18)}
+.selcard.show{display:flex}
+.selcard.on{border-left-color:var(--red)}
+.selcard .nm{flex:1;min-width:0;line-height:1.25}
+.selcard .nm .ja{font-size:18px;font-weight:700}
+.selcard .nm .en{display:block;font-size:12px;color:var(--muted)}
+.selcard .act{flex:none;border:0;border-radius:8px;padding:9px 12px;font-weight:700;font-size:13px;cursor:pointer;background:var(--red);color:#fff}
+.selcard.on .act{background:var(--chip);color:var(--ink)}
+.selcard .x{flex:none;background:none;border:0;font-size:20px;line-height:1;color:var(--muted);cursor:pointer;padding:4px 2px}
 .nogl{position:absolute;inset:0;display:none;place-items:center;text-align:center;padding:24px;color:var(--muted)}
 
 .tip{position:fixed;pointer-events:none;background:var(--ink);color:#fff;padding:6px 10px 7px;border-radius:8px;font-size:13px;line-height:1.25;opacity:0;transition:opacity .1s;z-index:5;white-space:nowrap}
@@ -143,7 +152,7 @@ button,input{font:inherit;color:inherit}
     <div class="hero">
       <div>
         <h1 id="title">My Japan</h1>
-        <p>Tap a prefecture to mark it as visited. Visited prefectures rise up in red. Your map is saved in this browser.</p>
+        <p>Tap a prefecture to see its name and mark it as visited. Visited prefectures rise up in red. Your map is saved in this browser.</p>
         <div class="name-field"><label for="nameIn">Your name</label><input id="nameIn" type="text" maxlength="30" placeholder="Add your name" autocomplete="name"></div>
       </div>
       <div class="stamp" id="stamp" aria-live="polite">
@@ -155,6 +164,7 @@ button,input{font:inherit;color:inherit}
       <div class="labels" id="labels"></div>
       <span class="howto">Drag to rotate, scroll or pinch to zoom, right-drag to pan</span>
       <div class="view-tools"><button class="ghost" id="resetBtn">Reset view</button></div>
+      <div class="selcard" id="selcard" role="status" aria-live="polite"><div class="nm" id="selName"></div><button class="act" id="selAct"></button><button class="x" id="selX" aria-label="Close">×</button></div>
       <div class="nogl" id="nogl">This browser can't show the 3D map. Use the list to mark prefectures.</div>
     </div>
 
@@ -279,7 +289,7 @@ function initThree(){
   const ray=new THREE.Raycaster(),mouse=new THREE.Vector2();let down=null;
   const pick=e=>{const r=renderer.domElement.getBoundingClientRect();mouse.set((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);ray.setFromCamera(mouse,camera);const hit=ray.intersectObjects(Object.values(meshes),false)[0];return hit?hit.object.userData.id:null;};
   renderer.domElement.addEventListener("pointerdown",e=>{down=[e.clientX,e.clientY];});
-  renderer.domElement.addEventListener("pointerup",e=>{if(!down)return;const moved=Math.hypot(e.clientX-down[0],e.clientY-down[1]);down=null;if(moved<6){const id=pick(e);if(id)toggle(id);}});
+  renderer.domElement.addEventListener("pointerup",e=>{if(!down)return;const moved=Math.hypot(e.clientX-down[0],e.clientY-down[1]);down=null;if(moved<6){const id=pick(e);if(e.pointerType==="touch"){id?showCard(id):hideCard();}else if(id)toggle(id);}});
   renderer.domElement.addEventListener("pointermove",e=>{
     if(e.pointerType==="touch")return;
     const id=pick(e);hoverId=id;
@@ -287,7 +297,7 @@ function initThree(){
       tip.style.left=Math.min(e.clientX+14,innerWidth-tip.offsetWidth-8)+"px";tip.style.top=(e.clientY+14)+"px";}
     else tip.style.opacity=0;
   });
-  renderer.domElement.addEventListener("pointerleave",()=>{hoverId=null;tip.style.opacity=0;});
+  renderer.domElement.addEventListener("pointerleave",e=>{if(e.pointerType!=="touch"){hoverId=selId;tip.style.opacity=0;}});
   document.getElementById("resetBtn").addEventListener("click",()=>{camera.position.set(...HOME.pos);if(controls){controls.target.set(...HOME.target);controls.update();}});
 
   new ResizeObserver(resize).observe(stage);resize();
@@ -377,7 +387,17 @@ REGIONS.forEach(R=>{
   regionsEl.appendChild(sec);regSec[R.k]=sec;
 });
 function toggle(id){visited.has(id)?visited.delete(id):visited.add(id);render(true);}
+let selId=null;
+const selcard=document.getElementById("selcard"),selName=document.getElementById("selName"),selAct=document.getElementById("selAct");
+function drawCard(){if(!selId)return;const p=byId[selId],on=visited.has(selId);
+  selName.innerHTML=`<span class="ja">${ruby(p.ja,p.rb)}</span><span class="en">${p.en}${on?" — visited":""}</span>`;
+  selAct.textContent=on?"Remove":"Mark visited";selcard.classList.toggle("on",on);}
+function showCard(id){selId=id;hoverId=id;selcard.classList.add("show");drawCard();}
+function hideCard(){selId=null;hoverId=null;selcard.classList.remove("show");}
+selAct.addEventListener("click",()=>{if(selId)toggle(selId);});
+document.getElementById("selX").addEventListener("click",hideCard);
 function render(animate){
+  drawCard();
   P.forEach(p=>chipEl[p.id].setAttribute("aria-pressed",visited.has(p.id)));
   let touched=0;
   REGIONS.forEach(R=>{
@@ -439,7 +459,7 @@ async function drawPNG(){
   // 3D render: fit the whole map, then crop to the map and scale into the frame
   if(ok3d){
     const target=controls?controls.target.clone():new THREE.Vector3(...HOME.target);
-    const dir=camera.position.clone().sub(target).normalize();
+    const dir=new THREE.Vector3(...HOME.pos).sub(new THREE.Vector3(...HOME.target)).normalize(); // same default view for everyone
     const saved={};for(const id in meshes){saved[id]=meshes[id].scale.z;meshes[id].scale.z=visited.has(+id)?H_ON:H_OFF;}
     scene.updateMatrixWorld(true);
     // sample map outline points (base and top) in world space
